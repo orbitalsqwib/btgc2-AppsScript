@@ -65,7 +65,14 @@ const ui = SpreadsheetApp.getUi();
 
 // defines the number of timeslot columns there are in a day
 const dayTimeslotCols = 7;
-const templateCols = 35 + 2;
+
+// text styles
+const generatorTextStyle = SpreadsheetApp.newTextStyle()
+  .setFontFamily("Arial")
+  .setFontSize(12)
+  .setBold(true)
+  .setForegroundColor("#000000")
+  .build();
 
 // -----(3)------ define utility functions
 
@@ -78,12 +85,20 @@ const mergeWeeks = (source: Week, target: Week) => {
 };
 
 // parses bids for a given week from a bidding entry
-const parseWeekBidsFromEntry: (entry: any[]) => Week = (entry) => {
+const parseWeekBidsFromEntry: (entry: any[]) => Week | null = (entry) => {
   // initialise working vars
   let week = Week(7);
   const companyName = entry[SheetColumn["Company"] - 1];
   const eatingStrength = entry[SheetColumn["EatingStrength"] - 1];
   const scanStartIndex = SheetColumn["TimeslotStart"] - 1;
+
+  // check if entry is missing mandatory fields
+  if (
+    companyName == "" ||
+    eatingStrength == "" ||
+    entry[SheetColumn["Week"] - 1] == ""
+  )
+    return null;
 
   // loop through entry records beginning from first timeslot
   for (let i = scanStartIndex; i < entry.length; i++) {
@@ -117,6 +132,9 @@ const parseDDMMYYToDate = (text: string) => {
 const generateTimingSheetFromBids = () => {
   // initialize sheets
   const inputSheet = spreadsheet.getSheetByName("Form Responses");
+  const templateSheet = spreadsheet.getSheetByName(
+    "Cookhouse Timings Template"
+  )!;
 
   // guard inputSheet must exist
   if (!inputSheet) {
@@ -130,8 +148,7 @@ const generateTimingSheetFromBids = () => {
   if (spreadsheet.getSheetByName("Cookhouse Timings"))
     spreadsheet.deleteSheet(spreadsheet.getSheetByName("Cookhouse Timings")!);
 
-  const outputSheet = spreadsheet
-    .getSheetByName("Cookhouse Timings Template")!
+  const outputSheet = templateSheet
     .copyTo(spreadsheet)
     .setName("Cookhouse Timings")
     .showSheet();
@@ -151,11 +168,14 @@ const generateTimingSheetFromBids = () => {
     // generate bids from each entry
     let weekBids = parseWeekBidsFromEntry(entryRow);
 
-    // if week exists in week dictionary, merge new bids into existing week
-    let weekname = entryRow[SheetColumn["Week"] - 1];
-    if (weeksMap.has(weekname)) mergeWeeks(weekBids, weeksMap.get(weekname)!);
-    // else, add new week to week dictionary
-    else weeksMap.set(weekname, weekBids);
+    // if bids exist in the entry
+    if (weekBids) {
+      // if week exists in week dictionary, merge new bids into existing week
+      let weekname = entryRow[SheetColumn["Week"] - 1];
+      if (weeksMap.has(weekname)) mergeWeeks(weekBids, weeksMap.get(weekname)!);
+      // else, add new week to week dictionary
+      else weeksMap.set(weekname, weekBids);
+    }
   }
 
   // sort by weekname and split into days
@@ -191,7 +211,12 @@ const generateTimingSheetFromBids = () => {
 
     // transcribe all compiled timeslot data for the day onto the output sheet
     Array.from(coyTimeslotMap.entries()).forEach(([timeslot, info]) => {
-      outputSheet.getRange(TimeslotRows[timeslot], col).setValue(info);
+      const updateRange = outputSheet.getRange(TimeslotRows[timeslot], col);
+      const richTextInfo = SpreadsheetApp.newRichTextValue()
+        .setText(info + "\n")
+        .setTextStyle(0, info.length, generatorTextStyle)
+        .build();
+      updateRange.setRichTextValue(richTextInfo);
     });
 
     // update day header for column
